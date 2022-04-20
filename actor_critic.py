@@ -19,7 +19,7 @@ import torch.nn.functional as F
 import matplotlib.pyplot as plt
 
 EPISODES = 200 # number of episodes
-REPLAY_BUFFER_SIZE = 50000 # equivalent to 5 episodes 
+REPLAY_BUFFER_SIZE = 10000 # equivalent to 1 episodes 
 GAMMA = 0.8  # Q-learning discount factor
 LR = 0.001  # NN optimizer learning rate
 HIDDEN_LAYER = 256  # NN hidden layer size
@@ -46,16 +46,16 @@ class ReplayBuffer:
 class CriticNetwork(nn.Module):
     def __init__(self):
         super(CriticNetwork, self).__init__()
-        self.fc1 = nn.Linear(STATE_DIM + ACTION_DIM, HIDDEN_LAYER)
-        self.fc2 = nn.Linear(HIDDEN_LAYER, HIDDEN_LAYER)
+        self.linear1 = nn.Linear(STATE_DIM + ACTION_DIM, HIDDEN_LAYER)
+        self.linear2 = nn.Linear(HIDDEN_LAYER, HIDDEN_LAYER)
         self.q1 = nn.Linear(HIDDEN_LAYER, 1)
         self.optimizer = optim.Adam(self.parameters(), LR)
 
     def forward(self, state, action):
         out = state.view(state.size(0), -1)
-        action_value = self.fc1(torch.cat([out, action], dim=1)) 
+        action_value = self.linear1(torch.cat([out, action], dim=1)) 
         action_value = F.relu(action_value) 
-        action_value = self.fc2(action_value) 
+        action_value = self.linear2(action_value) 
         action_value = F.relu(action_value) 
         q1 = self.q1(action_value) 
         return q1
@@ -79,12 +79,10 @@ class Agent(object):
         self.memory = ReplayBuffer(REPLAY_BUFFER_SIZE)
         self.actor = ActorNetwork()
         self.critic = CriticNetwork()
-        self.target_actor = ActorNetwork()
-        self.target_critic = CriticNetwork()
 
     def select_action(self, observation):
         state = Variable(FloatTensor(np.array([observation])))
-        action = self.target_actor(state).detach()
+        action = self.actor(state)
         return action
 
     def populate_replay_buffer(self, states_file, actions_file, rewards_file, num_steps):
@@ -108,26 +106,30 @@ class Agent(object):
         self.critic_learn(state, action, reward, new_state)
         self.actor_learn(state)
 
-    def critic_learn(self, obs, action, reward, next_obs):
-        with torch.no_grad():
-            next_action = self.actor(next_obs)
-            max_next_q_values = self.target_critic(next_obs, next_action).detach().max(1)[0]
-            expected_q_values = reward + GAMMA * max_next_q_values
+    def critic_learn(self, obs, action, reward, next_obs):    
+        next_action = self.actor(next_obs)
+        max_next_q_values = self.critic(next_obs, next_action)
+        expected_q_values = reward + GAMMA * max_next_q_values
         predicted_q_values = self.critic(obs, action)
 
-        loss = F.smooth_l1_loss(predicted_q_values, expected_q_values)
+        critic_loss = F.smooth_l1_loss(predicted_q_values, expected_q_values)
+        
         self.critic.optimizer.zero_grad()
-        loss.backward()
+        critic_loss.backward()
         self.critic.optimizer.step()
 
     def actor_learn(self, obs):
-        action = self.actor(obs)
-        q1 = self.critic(obs, action)
-        loss = -1 * torch.sum(q1)
+        new_action = self.actor(obs)
+        q1 = self.critic(obs, new_action)
 
-        self.actor.optimizer.zero_grad()
-        loss.backward()
-        self.actor.optimizer.step()
+        next_action2 = self.actor(obs)
+        expected_q = self.critic(obs, next_action2)
+        
+        A_hat = q1 - expected_q
+        
+        #self.actor.optimizer.zero_grad()
+        #actor_loss.backward()
+        #self.actor.optimizer.step()
 
 if __name__ == '__main__':
     states = open('dataset_obs.p', 'rb')
