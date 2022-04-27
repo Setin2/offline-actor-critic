@@ -17,6 +17,8 @@ import torch.optim as optim
 from torch.autograd import Variable
 import torch.nn.functional as F
 import matplotlib.pyplot as plt
+from torch.distributions import Categorical
+from torch.distributions import Normal
 
 EPISODES = 200 # number of episodes
 REPLAY_BUFFER_SIZE = 10000 # equivalent to 1 episodes 
@@ -26,6 +28,9 @@ HIDDEN_LAYER = 256  # NN hidden layer size
 BATCH_SIZE = 64  # Q-learning batch size
 STATE_DIM = 48*48*3
 ACTION_DIM = 3
+
+LOG_SIG_MAX = 2.0
+LOG_SIG_MIN = -20.0
 
 class ReplayBuffer:
     def __init__(self, capacity):
@@ -64,15 +69,35 @@ class ActorNetwork(nn.Module):
     def __init__(self):
         nn.Module.__init__(self)
         self.linear1 = nn.Linear(STATE_DIM, HIDDEN_LAYER)
-        self.linear2 = nn.Linear(HIDDEN_LAYER, ACTION_DIM)
+        self.linear2 = nn.Linear(HIDDEN_LAYER, HIDDEN_LAYER)
+        self.linear3 = nn.Linear(HIDDEN_LAYER, HIDDEN_LAYER)
         self.optimizer = optim.Adam(self.parameters(), LR)
+        
+        self.mu = nn.Linear(HIDDEN_LAYER, ACTION_DIM)
+        self.var = nn.Linear(HIDDEN_LAYER, ACTION_DIM)
 
-    def forward(self, x):
-        out = x.view(x.size(0), -1)
-        out = self.linear1(out)
-        out = F.relu(out)
-        out = self.linear2(out)
-        return out
+    def forward(self, obs):
+        x = obs.view(obs.size(0), -1)
+        x = F.relu(self.linear1(x))
+        x = F.relu(self.linear2(x))
+        x = F.relu(self.linear3(x))
+        
+        mu = self.mu(x)
+        std = self.var(x)
+        std = torch.clamp(std, min=1e-6, max=1)
+        
+        return mu, std
+        
+    def sample(self, state):
+        x = state.view(state.size(0), -1)
+        mu, std = self.forward(state)
+        normal = Normal(0, 1)
+        epsilon = normal.sample()
+        action = mu + std * epsilon
+
+        log_prob = normal.log_prob(action)
+        
+        return action, log_prob
 
 class Agent(object):
     def __init__(self):
@@ -82,8 +107,8 @@ class Agent(object):
 
     def select_action(self, observation):
         state = Variable(FloatTensor(np.array([observation])))
-        action = self.actor(state)
-        return action
+        action, _ = self.actor.sample(state)
+        return action.detach().numpy()[0].tolist()
 
     def populate_replay_buffer(self, states_file, actions_file, rewards_file, num_steps):
         print('Loading offline data')
@@ -106,8 +131,8 @@ class Agent(object):
         self.critic_learn(state, action, reward, new_state)
         self.actor_learn(state)
 
-    def critic_learn(self, obs, action, reward, next_obs):    
-        next_action = self.actor(next_obs)
+    def critic_learn(self, obs, action, reward, next_obs):
+        next_action, _ = self.actor.sample(next_obs)
         max_next_q_values = self.critic(next_obs, next_action)
         expected_q_values = reward + GAMMA * max_next_q_values
         predicted_q_values = self.critic(obs, action)
@@ -119,13 +144,15 @@ class Agent(object):
         self.critic.optimizer.step()
 
     def actor_learn(self, obs):
-        new_action = self.actor(obs)
+        new_action, _ = self.actor.sample(obs)
         q1 = self.critic(obs, new_action)
-
-        next_action2 = self.actor(obs)
-        expected_q = self.critic(obs, next_action2)
+        
+        new_action2, log_prob = self.actor.sample(obs)
+        expected_q = self.critic(obs, new_action2)
         
         A_hat = q1 - expected_q
+        
+        #actor_loss = 
         
         #self.actor.optimizer.zero_grad()
         #actor_loss.backward()
@@ -160,3 +187,19 @@ if __name__ == '__main__':
                     actor.destroy()
                 
                 break
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
