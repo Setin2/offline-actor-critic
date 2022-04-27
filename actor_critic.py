@@ -29,9 +29,6 @@ BATCH_SIZE = 64  # Q-learning batch size
 STATE_DIM = 48*48*3
 ACTION_DIM = 3
 
-LOG_SIG_MAX = 2.0
-LOG_SIG_MIN = -20.0
-
 class ReplayBuffer:
     def __init__(self, capacity):
         self.capacity = capacity
