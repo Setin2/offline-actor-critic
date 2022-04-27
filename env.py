@@ -18,7 +18,6 @@ except IndexError:
 
 import carla
 
-client = carla.Client("localhost", 2000)
 SECONDS_PER_EPISODE = 100
 
 # environment class
