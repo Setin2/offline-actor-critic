@@ -92,7 +92,7 @@ class ActorNetwork(nn.Module):
         epsilon = normal.sample()
         action = mu + std * epsilon
 
-        log_prob = normal.log_prob(action)
+        log_prob = normal.log_prob(epsilon)
         
         return action, log_prob
 
