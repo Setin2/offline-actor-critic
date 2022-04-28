@@ -92,7 +92,14 @@ class ActorNetwork(nn.Module):
         epsilon = normal.sample()
         action = mu + std * epsilon
 
-        log_prob = normal.log_prob(epsilon)
+        # do it manually for some reason
+        # pdf = (1/(std.detach().numpy()[0]*math.sqrt(2*np.pi))) * np.exp(-0.5*((action.detach().numpy()[0] - mu.detach().numpy()[0])/std.detach().numpy()[0])**2) # probability density function
+        # log_prob = torch.log(torch.Tensor(pdf))
+        
+        log_prob = scipy.stats.norm.logpdf(action.detach().numpy()[0], loc=mu.detach().numpy()[0], scale=std.detach().numpy()[0]) # using preeexisting library, does not like tensors either
+        log_prob = torch.Tensor(log_prob)
+
+        # log_prob = normal.log_prob(epsilon) # not exactly sure how to use, but might be what im looking for
         
         return action, log_prob
 
