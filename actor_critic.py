@@ -85,9 +85,9 @@ class ActorNetwork(nn.Module):
         
         return mu, std
         
-    def sample(self, state):
+    def sample_action(self, state):
         x = state.view(state.size(0), -1)
-        mu, std = self.forward(state)
+        mu, std = self.forward(x)
         normal = Normal(0, 1)
         epsilon = normal.sample()
         action = mu + std * epsilon
@@ -129,7 +129,7 @@ class Agent(object):
         self.actor_learn(state)
 
     def critic_learn(self, obs, action, reward, next_obs):
-        next_action, _ = self.actor.sample(next_obs)
+        next_action, _ = self.actor.sample_action(next_obs)
         max_next_q_values = self.critic(next_obs, next_action)
         expected_q_values = reward + GAMMA * max_next_q_values
         predicted_q_values = self.critic(obs, action)
@@ -141,10 +141,10 @@ class Agent(object):
         self.critic.optimizer.step()
 
     def actor_learn(self, obs):
-        new_action, _ = self.actor.sample(obs)
+        new_action, _ = self.actor.sample_action(obs)
         q1 = self.critic(obs, new_action)
         
-        new_action2, log_prob = self.actor.sample(obs)
+        new_action2, log_prob = self.actor.sample_action(obs)
         expected_q = self.critic(obs, new_action2)
         
         A_hat = q1 - expected_q
