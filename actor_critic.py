@@ -80,27 +80,19 @@ class ActorNetwork(nn.Module):
         x = F.relu(self.linear3(x))
         
         mu = self.mu(x)
-        std = self.var(x)
-        std = torch.clamp(std, min=1e-6, max=1)
+        log_std = self.log_std(x)
         
-        return mu, std
+        return mu, log_std
         
     def sample_action(self, state):
         x = state.view(state.size(0), -1)
-        mu, std = self.forward(x)
+        mu, log_std = self.forward(x)
         normal = Normal(0, 1)
         epsilon = normal.sample()
-        action = mu + std * epsilon
+        action = mu + torch.exp(log_std).sqrt() * epsilon
 
-        # do it manually for some reason
-        # pdf = (1/(std.detach().numpy()[0]*math.sqrt(2*np.pi))) * np.exp(-0.5*((action.detach().numpy()[0] - mu.detach().numpy()[0])/std.detach().numpy()[0])**2) # probability density function
-        # log_prob = torch.log(torch.Tensor(pdf))
-        
-        log_prob = scipy.stats.norm.logpdf(action.detach().numpy()[0], loc=mu.detach().numpy()[0], scale=std.detach().numpy()[0]) # using preeexisting library, does not like tensors either
-        log_prob = torch.Tensor(log_prob)
+        log_prob = -0.5*log_std - (0.5/log_std) * (action - mu)**2 - 0.5*math.log(2*np.pi) # log of probability density function
 
-        # log_prob = normal.log_prob(epsilon) # not exactly sure how to use, but might be what im looking for
-        
         return action, log_prob
 
 class Agent(object):
@@ -156,23 +148,20 @@ class Agent(object):
         
         A_hat = q1 - expected_q
         
-        #actor_loss = 
+        actor_loss = torch.mean(log_prob*A_hat)
         
-        #self.actor.optimizer.zero_grad()
-        #actor_loss.backward()
-        #self.actor.optimizer.step()
+        self.actor.optimizer.zero_grad()
+        actor_loss.backward()
+        self.actor.optimizer.step()
 
 if __name__ == '__main__':
-    states = open('dataset_obs.p', 'rb')
-    actions = open('dataset_actions.p', 'rb')
-    rewards = open('dataset_rewards.p', 'rb')
-
     use_cuda = torch.cuda.is_available()
     FloatTensor = torch.cuda.FloatTensor if use_cuda else torch.FloatTensor
 
     env = env.CarEnv()
     agent = Agent()
-    agent.populate_replay_buffer(states, actions, rewards, REPLAY_BUFFER_SIZE)
+    with open('dataset_obs.p', 'rb') as states, open('dataset_actions.p', 'rb') as actions, open('dataset_rewards.p', 'rb') as rewards:
+        agent.populate_replay_buffer(states, actions, rewards, REPLAY_BUFFER_SIZE)
 
     for e in range(EPISODES):
         obs = env.reset()
