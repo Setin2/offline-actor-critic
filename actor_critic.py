@@ -71,7 +71,7 @@ class ActorNetwork(nn.Module):
         self.optimizer = optim.Adam(self.parameters(), LR)
         
         self.mu = nn.Linear(HIDDEN_LAYER, ACTION_DIM)
-        self.var = nn.Linear(HIDDEN_LAYER, ACTION_DIM)
+        self.log_var = nn.Linear(HIDDEN_LAYER, ACTION_DIM)
 
     def forward(self, obs):
         x = obs.view(obs.size(0), -1)
@@ -80,18 +80,18 @@ class ActorNetwork(nn.Module):
         x = F.relu(self.linear3(x))
         
         mu = self.mu(x)
-        log_std = self.log_std(x)
+        log_var = self.log_var(x)
         
-        return mu, log_std
+        return mu, log_var
         
     def sample_action(self, state):
         x = state.view(state.size(0), -1)
-        mu, log_std = self.forward(x)
+        mu, log_var = self.forward(x)
         normal = Normal(0, 1)
         epsilon = normal.sample()
-        action = mu + torch.exp(log_std).sqrt() * epsilon
+        action = mu + torch.exp(log_var).sqrt() * epsilon
 
-        log_prob = -0.5*log_std - (0.5/log_std) * (action - mu)**2 - 0.5*math.log(2*np.pi) # log of probability density function
+        log_prob = -0.5*log_var - (0.5/log_var) * (action - mu)**2 - 0.5*math.log(2*np.pi) # log of probability density function
 
         return action, log_prob
 
