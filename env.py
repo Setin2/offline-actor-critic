@@ -18,6 +18,7 @@ except IndexError:
 
 import carla
 
+# dont run an episode for more than this amount of seconds
 SECONDS_PER_EPISODE = 100
 
 # environment class
@@ -80,7 +81,6 @@ class CarEnv:
         self.CAMERA = rgb
 
     def step(self, action):
-        action = action.tolist()[0]
         print(action)
         self.vehicle.apply_control(carla.VehicleControl(action[0], action[1], action[2]))
 
