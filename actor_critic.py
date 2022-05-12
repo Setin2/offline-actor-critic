@@ -20,10 +20,14 @@ import matplotlib.pyplot as plt
 from torch.distributions import Categorical
 from torch.distributions import Normal
 
+import matplotlib.pyplot as plt
+
+import scipy.stats
+
 EPISODES = 200 # number of episodes
-REPLAY_BUFFER_SIZE = 10000 # equivalent to 1 episodes 
+REPLAY_BUFFER_SIZE = 400 # equivalent to x episodes 
 GAMMA = 0.8  # Q-learning discount factor
-LR = 0.001  # NN optimizer learning rate
+LR = 0.00003  # NN optimizer learning rate
 HIDDEN_LAYER = 256  # NN hidden layer size
 BATCH_SIZE = 64  # Q-learning batch size
 STATE_DIM = 48*48*3
@@ -54,8 +58,8 @@ class CriticNetwork(nn.Module):
         self.optimizer = optim.Adam(self.parameters(), LR)
 
     def forward(self, state, action):
-        out = state.view(state.size(0), -1)
-        action_value = self.linear1(torch.cat([out, action], dim=1)) 
+        state = state.view(state.size(0), -1)
+        action_value = self.linear1(torch.cat([state, action], dim=1)) 
         action_value = F.relu(action_value) 
         action_value = self.linear2(action_value) 
         action_value = F.relu(action_value) 
@@ -68,15 +72,16 @@ class ActorNetwork(nn.Module):
         self.linear1 = nn.Linear(STATE_DIM, HIDDEN_LAYER)
         self.linear2 = nn.Linear(HIDDEN_LAYER, HIDDEN_LAYER)
         self.linear3 = nn.Linear(HIDDEN_LAYER, HIDDEN_LAYER)
-        self.optimizer = optim.Adam(self.parameters(), LR)
-        
+
         self.mu = nn.Linear(HIDDEN_LAYER, ACTION_DIM)
         self.log_var = nn.Linear(HIDDEN_LAYER, ACTION_DIM)
+       
+        self.optimizer = optim.Adam(self.parameters(), LR)
 
     def forward(self, obs):
         x = obs.view(obs.size(0), -1)
-        x = F.relu(self.linear1(x))
-        x = F.relu(self.linear2(x))
+        x = F.relu(self.linear1(obs))
+        x = F.relu(self.linear2(x)) 
         x = F.relu(self.linear3(x))
         
         mu = self.mu(x)
@@ -90,8 +95,11 @@ class ActorNetwork(nn.Module):
         normal = Normal(0, 1)
         epsilon = normal.sample()
         action = mu + torch.exp(log_var).sqrt() * epsilon
+        action[:,0] = torch.sigmoid(action[:,0])
+        action[:,1] = torch.tanh(action[:,1])
+        action[:,2] = torch.sigmoid(action[:,2])
 
-        log_prob = -0.5*log_var - (0.5/log_var) * (action - mu)**2 - 0.5*math.log(2*np.pi) # log of probability density function
+        log_prob = -0.5*log_var - (0.5/(log_var)) * (action - mu)**2 - 0.5*math.log(2*np.pi) # log-normal density
 
         return action, log_prob
 
@@ -103,7 +111,7 @@ class Agent(object):
 
     def select_action(self, observation):
         state = Variable(FloatTensor(np.array([observation])))
-        action, _ = self.actor.sample(state)
+        action, _ = self.actor.sample_action(state)
         return action.detach().numpy()[0].tolist()
 
     def populate_replay_buffer(self, states_file, actions_file, rewards_file, num_steps):
@@ -127,11 +135,11 @@ class Agent(object):
         self.critic_learn(state, action, reward, new_state)
         self.actor_learn(state)
 
-    def critic_learn(self, obs, action, reward, next_obs):
+    def critic_learn(self, obs, actions, rewards, next_obs):
         next_action, _ = self.actor.sample_action(next_obs)
         max_next_q_values = self.critic(next_obs, next_action)
-        expected_q_values = reward + GAMMA * max_next_q_values
-        predicted_q_values = self.critic(obs, action)
+        expected_q_values = rewards + GAMMA * max_next_q_values
+        predicted_q_values = self.critic(obs, actions)
 
         critic_loss = F.smooth_l1_loss(predicted_q_values, expected_q_values)
         
@@ -142,10 +150,10 @@ class Agent(object):
     def actor_learn(self, obs):
         new_action, _ = self.actor.sample_action(obs)
         q1 = self.critic(obs, new_action)
-        
+
         new_action2, log_prob = self.actor.sample_action(obs)
         expected_q = self.critic(obs, new_action2)
-        
+    
         A_hat = q1 - expected_q
         
         actor_loss = torch.mean(log_prob*A_hat)
@@ -168,9 +176,9 @@ if __name__ == '__main__':
         done = False
         steps = 0
         while not done:
+            agent.learn()
             act = agent.select_action(obs)
             new_state, reward, done, info = env.step(act)
-            agent.learn()
             steps += 1
             obs = new_state
 
@@ -180,19 +188,5 @@ if __name__ == '__main__':
                     actor.destroy()
                 
                 break
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
