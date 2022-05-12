@@ -25,7 +25,7 @@ import matplotlib.pyplot as plt
 import scipy.stats
 
 EPISODES = 200 # number of episodes
-REPLAY_BUFFER_SIZE = 400 # equivalent to x episodes 
+REPLAY_BUFFER_SIZE = 1500 # equivalent to x episodes 
 GAMMA = 0.8  # Q-learning discount factor
 LR = 0.00003  # NN optimizer learning rate
 HIDDEN_LAYER = 256  # NN hidden layer size
