@@ -19,18 +19,16 @@ import torch.nn.functional as F
 import matplotlib.pyplot as plt
 from torch.distributions import Categorical
 from torch.distributions import Normal
-
 import matplotlib.pyplot as plt
-
 import scipy.stats
 
 EPISODES = 200 # number of episodes
-REPLAY_BUFFER_SIZE = 1500 # equivalent to x episodes 
+REPLAY_BUFFER_SIZE = 2000 # equivalent to x episodes
 GAMMA = 0.8  # Q-learning discount factor
-LR = 0.00003  # NN optimizer learning rate
-HIDDEN_LAYER = 256  # NN hidden layer size
+LR = 1e-6# NN optimizer learning rate
+HIDDEN_LAYER = 128  # NN hidden layer size
 BATCH_SIZE = 64  # Q-learning batch size
-STATE_DIM = 48*48*3
+STATE_DIM = 84*84*3#48*48*3
 ACTION_DIM = 3
 
 class ReplayBuffer:
@@ -55,7 +53,7 @@ class CriticNetwork(nn.Module):
         self.linear1 = nn.Linear(STATE_DIM + ACTION_DIM, HIDDEN_LAYER)
         self.linear2 = nn.Linear(HIDDEN_LAYER, HIDDEN_LAYER)
         self.q1 = nn.Linear(HIDDEN_LAYER, 1)
-        self.optimizer = optim.Adam(self.parameters(), LR)
+        self.optimizer = optim.Adam(self.parameters(), LR*1e+3)
 
     def forward(self, state, action):
         state = state.view(state.size(0), -1)
@@ -71,7 +69,6 @@ class ActorNetwork(nn.Module):
         nn.Module.__init__(self)
         self.linear1 = nn.Linear(STATE_DIM, HIDDEN_LAYER)
         self.linear2 = nn.Linear(HIDDEN_LAYER, HIDDEN_LAYER)
-        self.linear3 = nn.Linear(HIDDEN_LAYER, HIDDEN_LAYER)
 
         self.mu = nn.Linear(HIDDEN_LAYER, ACTION_DIM)
         self.log_var = nn.Linear(HIDDEN_LAYER, ACTION_DIM)
@@ -82,7 +79,6 @@ class ActorNetwork(nn.Module):
         x = obs.view(obs.size(0), -1)
         x = F.relu(self.linear1(obs))
         x = F.relu(self.linear2(x)) 
-        x = F.relu(self.linear3(x))
         
         mu = self.mu(x)
         log_var = self.log_var(x)
@@ -99,7 +95,7 @@ class ActorNetwork(nn.Module):
         action[:,1] = torch.tanh(action[:,1])
         action[:,2] = torch.sigmoid(action[:,2])
 
-        log_prob = -0.5*log_var - (0.5/(log_var)) * (action - mu)**2 - 0.5*math.log(2*np.pi) # log-normal density
+        log_prob = -0.5*log_var - (0.5/(log_var+0.001)) * (action - mu)**2 - 0.5*math.log(2*np.pi) # log-normal density
 
         return action, log_prob
 
@@ -108,6 +104,16 @@ class Agent(object):
         self.memory = ReplayBuffer(REPLAY_BUFFER_SIZE)
         self.actor = ActorNetwork()
         self.critic = CriticNetwork()
+        self.load_policy()
+        
+    # load previoulsy trained policy + its optimizer if there is any. can resume training from last checkpoint if needed
+    def load_policy(self):
+        if os.path.exists("model_weights.pth"):
+            print("LOADING POLICY")
+            checkpoint = torch.load('model_weights.pth')
+            self.actor.load_state_dict(checkpoint['model_state_dict'])
+            self.actor.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+            self.actor.eval()
 
     def select_action(self, observation):
         state = Variable(FloatTensor(np.array([observation])))
@@ -138,8 +144,8 @@ class Agent(object):
     def critic_learn(self, obs, actions, rewards, next_obs):
         next_action, _ = self.actor.sample_action(next_obs)
         max_next_q_values = self.critic(next_obs, next_action)
-        expected_q_values = rewards + GAMMA * max_next_q_values
-        predicted_q_values = self.critic(obs, actions)
+        expected_q_values = rewards + GAMMA * max_next_q_values.view(-1)
+        predicted_q_values = self.critic(obs, actions)#.squeeze(1) # maybe
 
         critic_loss = F.smooth_l1_loss(predicted_q_values, expected_q_values)
         
@@ -155,28 +161,60 @@ class Agent(object):
         expected_q = self.critic(obs, new_action2)
     
         A_hat = q1 - expected_q
+
+        actor_loss = -torch.mean(log_prob*A_hat)
         
-        actor_loss = torch.mean(log_prob*A_hat)
-        
+        loss_list.append(actor_loss)
+    
         self.actor.optimizer.zero_grad()
         actor_loss.backward()
         self.actor.optimizer.step()
+    
+    def train(self):
+        with open('dataset_obs.p', 'rb') as states, open('dataset_actions.p', 'rb') as actions, open('dataset_rewards.p', 'rb') as rewards:
+            self.populate_replay_buffer(states, actions, rewards, REPLAY_BUFFER_SIZE)
+
+        for i in range(1000):
+            self.learn()
+            #plot_loss()
+
+        torch.save({
+            'model_state_dict': self.actor.state_dict(),
+            'optimizer_state_dict': self.actor.optimizer.state_dict()
+            }, "model_weights.pth")
+
+def plot_loss():
+    plt.figure(2)
+    plt.clf()
+    loss_list_t = torch.FloatTensor(loss_list)
+    plt.title("Critic Loss")
+    plt.xlabel("Step")
+    plt.ylabel("Loss")
+    plt.plot(loss_list_t.numpy())
+    # take 100 steps average and plot them too
+    if len(loss_list_t) >= 100:
+        means = loss_list_t.unfold(0,100,1).mean(1).view(-1)
+        means = torch.cat((torch.zeros(99), means))
+        plt.plot(means.numpy())
+    
+    plt.pause(0.01)
 
 if __name__ == '__main__':
     use_cuda = torch.cuda.is_available()
     FloatTensor = torch.cuda.FloatTensor if use_cuda else torch.FloatTensor
 
+    loss_list = []
+
     env = env.CarEnv()
     agent = Agent()
-    with open('dataset_obs.p', 'rb') as states, open('dataset_actions.p', 'rb') as actions, open('dataset_rewards.p', 'rb') as rewards:
-        agent.populate_replay_buffer(states, actions, rewards, REPLAY_BUFFER_SIZE)
+
+    agent.train()
 
     for e in range(EPISODES):
         obs = env.reset()
         done = False
         steps = 0
         while not done:
-            agent.learn()
             act = agent.select_action(obs)
             new_state, reward, done, info = env.step(act)
             steps += 1
@@ -188,5 +226,15 @@ if __name__ == '__main__':
                     actor.destroy()
                 
                 break
+
+
+
+
+
+
+
+
+
+
 
 
