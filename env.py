@@ -7,7 +7,7 @@ import numpy as np
 import cv2
 import math
 
-#import carla egg
+# import carla egg
 try:
     sys.path.append(glob.glob('../carla/dist/carla-*%d.%d-%s.egg' % (
         sys.version_info.major,
@@ -102,7 +102,7 @@ class CarEnv:
         self.client = carla.Client('localhost', 2000)
         self.client.set_timeout(200.0)
         self.world = self.client.get_world()
-        self.model = self.world.get_blueprint_library().find('vehicle.audi.a2')#filter('model3')[0]
+        self.model = self.world.get_blueprint_library().find('vehicle.audi.a2')
         self.weather = Weather(self.world, self.WEATHER_CHANGE_SPEED)     
         self.vehicles_list = []
         self.spawn_vehicles()
@@ -111,7 +111,7 @@ class CarEnv:
         self.collisions = []
         self.actor_list = []
 
-        # set up vehicle at random spawn point
+        # set up vehicle at random spawn point. might throw error if spawn point is not free
         self.transform = random.choice(self.world.get_map().get_spawn_points())
         self.vehicle = self.world.spawn_actor(self.model, self.transform)
         self.actor_list.append(self.vehicle)
