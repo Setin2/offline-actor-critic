@@ -96,16 +96,16 @@ class CarEnv:
     CAMERA = None
     WIDTH = 84
     HEIGHT = 84
-    STEER_AMT = 1.0
+    WEATHER_CHANGE_SPEED = 0.02
 
     def __init__(self):
         self.client = carla.Client('localhost', 2000)
         self.client.set_timeout(200.0)
         self.world = self.client.get_world()
-        self.model = self.world.get_blueprint_library().filter('model3')[0]
-        self.weather = Weather(self.world, 0.01)
-        #self.vehicles_list = []
-        #self.reset_other_vehicles()
+        self.model = self.world.get_blueprint_library().find('vehicle.audi.a2')#filter('model3')[0]
+        self.weather = Weather(self.world, self.WEATHER_CHANGE_SPEED)     
+        self.vehicles_list = []
+        self.spawn_vehicles()
 
     def reset(self):
         self.collisions = []
@@ -115,6 +115,9 @@ class CarEnv:
         self.transform = random.choice(self.world.get_map().get_spawn_points())
         self.vehicle = self.world.spawn_actor(self.model, self.transform)
         self.actor_list.append(self.vehicle)
+        
+        spectator = self.world.get_spectator()
+        spectator.set_transform(self.vehicle.get_transform())
 
         # setup camera
         self.rgb = self.world.get_blueprint_library().find('sensor.camera.rgb')
@@ -129,6 +132,7 @@ class CarEnv:
         self.cam.listen(lambda data: self.reshape_image(data))
 
         self.vehicle.apply_control(carla.VehicleControl(throttle=0.0, brake=0.0))
+        
         time.sleep(10)
 
         # setup collision detector
@@ -142,38 +146,37 @@ class CarEnv:
 
         return self.CAMERA
 
-    def reset_other_vehicles(self):
-        # clear out old vehicles
-        self.client.apply_batch([carla.command.DestroyActor(x) for x in self.vehicles_list])
-        self.world.tick()
-        self.vehicles_list = []
+    def spawn_vehicles(self):
+        traffic_manager = self.client.get_trafficmanager(8000)
+        traffic_manager.set_global_distance_to_leading_vehicle(2)
+        traffic_manager.set_random_device_seed(0)
 
-        traffic_manager = self.client.get_trafficmanager()
-        traffic_manager.set_global_distance_to_leading_vehicle(2.0)
-        traffic_manager.set_synchronous_mode(True)
-        blueprints = self.world.get_blueprint_library().filter('vehicle.*')
-        blueprints = [x for x in blueprints if int(x.get_attribute('number_of_wheels')) == 4]
+        blueprints = self.world.get_blueprint_library().filter('model3')
 
         num_vehicles = 20
-        init_transforms = self.world.get_map().get_spawn_points()
-        init_transforms = np.random.choice(init_transforms, num_vehicles)
 
-        # --------------
-        # Spawn vehicles
-        # --------------
+        spawn_points = self.world.get_map().get_spawn_points()
+        init_transforms = np.random.choice(spawn_points, num_vehicles)
+        
+        SpawnActor = carla.command.SpawnActor
+        SetAutopilot = carla.command.SetAutopilot
+        FutureActor = carla.command.FutureActor
+
+        # spawn vehicles
+
+        blueprint = blueprints[0]
         batch = []
-        for transform in init_transforms:
-            transform.location.z += 0.1  # otherwise can collide with the road it starts on
-            blueprint = random.choice(blueprints)
+        for tr in init_transforms:
             if blueprint.has_attribute('color'):
                 color = random.choice(blueprint.get_attribute('color').recommended_values)
                 blueprint.set_attribute('color', color)
-            if blueprint.has_attribute('driver_id'):
+            if blueprint.has_attribute('driver_id'):        
                 driver_id = random.choice(blueprint.get_attribute('driver_id').recommended_values)
                 blueprint.set_attribute('driver_id', driver_id)
+
             blueprint.set_attribute('role_name', 'autopilot')
-            batch.append(carla.command.SpawnActor(blueprint, transform).then(
-                carla.command.SetAutopilot(carla.command.FutureActor, True)))
+            batch.append(SpawnActor(blueprint, tr)
+                .then(SetAutopilot(FutureActor, True, traffic_manager.get_port())))
 
         for response in self.client.apply_batch_sync(batch, False):
             self.vehicles_list.append(response.actor_id)
@@ -184,36 +187,27 @@ class CarEnv:
             else:
                 self.vehicles_list.append(response.actor_id)
 
-        traffic_manager.global_percentage_speed_difference(30.0)
-
     # log collisions
     def collision_data(self, event):
         self.collisions.append(event)
 
-    # reshape image given by camera
     def reshape_image(self, image):
         bgra = np.array(image.raw_data).reshape(self.HEIGHT, self.WIDTH, 4)
         bgr = bgra[:, :, :3]
         rgb = np.flip(bgr, axis=2)
-        self.CAMERA = rgb
+        self.CAMERA = rgb/255.0
 
     def step(self, action):
         print(action)
-        self.vehicle.apply_control(carla.VehicleControl(action[0], action[1], action[2]))
+        self.vehicle.apply_control(carla.VehicleControl(throttle=action[0], steer=action[1], brake=0))#action[2]))
 
         # Weather evolves
         self.weather.tick()
 
-        # stop episode & penalize on collision
-        if len(self.collisions) != 0:
-            done = True
-            reward = -200
-        else:
-            done = False
-            reward = 1
+        # dont really need reward for offline RL
+        reward = 0
 
         if self.episode_start + SECONDS_PER_EPISODE < time.time():
             done = True
 
         return self.CAMERA, reward, done, None
-
