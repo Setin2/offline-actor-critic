@@ -1,3 +1,5 @@
+# link to the code used to generate data: https://github.com/rail-berkeley/d4rl/blob/master/d4rl/carla/data_collection_agent_lane.py
+
 import glob
 import os
 import sys
