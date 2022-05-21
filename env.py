@@ -207,6 +207,8 @@ class CarEnv:
 
         # dont really need reward for offline RL
         reward = 0
+        
+        done = False
 
         if self.episode_start + SECONDS_PER_EPISODE < time.time():
             done = True
