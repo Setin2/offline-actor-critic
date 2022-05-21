@@ -200,7 +200,7 @@ class CarEnv:
 
     def step(self, action):
         print(action)
-        self.vehicle.apply_control(carla.VehicleControl(throttle=action[0], steer=action[1], brake=0))#action[2]))
+        self.vehicle.apply_control(carla.VehicleControl(throttle=action[0], steer=action[1], brake=action[2]))
 
         # Weather evolves
         self.weather.tick()
