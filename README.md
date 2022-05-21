@@ -1,4 +1,4 @@
-# Project Title
+# Carla RL
 
 Generic offline actor-critic in the CARLA simulator
 
