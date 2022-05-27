@@ -91,8 +91,6 @@ class Agent(object):
         self.actor = ActorNetwork()
         self.critic = CriticNetwork()
         #self.load_models()
-
-        self.prev_critic = copy.deepcopy(self.critic)
         
     # load previoulsy trained policy + its optimizer if there is any. can resume training from last checkpoint if needed
     def load_models(self):
@@ -188,14 +186,12 @@ class Agent(object):
         actor_loss.backward()
         self.actor.optimizer.step()
 
-    def actor_learn(self, obs):
+    def actor_learn(self, obs, next_obs):
         new_action, _ = self.sample_action(obs)
         q1 = self.critic(obs, new_action)
 
-        new_action2, log_prob = self.sample_action(obs)
-        expected_q = self.prev_critic(obs, new_action2)
-
-        self.prev_critic = copy.deepcopy(self.critic)
+        new_action2, log_prob = self.sample_action(next_obs)
+        expected_q = self.critic(next_obs, new_action2)
 
         A_hat = q1 - expected_q
 
