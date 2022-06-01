@@ -157,7 +157,7 @@ class Agent(object):
         new_state = torch.FloatTensor(np.array(batch_state[1 : len(batch_state)])).to(self.device)
 
         self.critic_learn(state, action, reward, new_state)
-        self.actor_learn(state)
+        self.actor_learn(state, new_state)
         #self.behavioural_cloning(state, action)
 
     def critic_learn(self, obs, actions, rewards, next_obs):
@@ -209,7 +209,6 @@ class Agent(object):
 
         for i in range(epochs):
             self.learn()
-            test(500)
             if plot: plot_loss(ax)
             
         plt.savefig('books_read.png')
@@ -290,14 +289,9 @@ if __name__ == '__main__':
             new_state, reward, done, info = env.step(act)
             steps += 1
             obs = new_state
-
             if done:
                 print("{2} Episode {0} finished after {1} steps".format(e, steps, '\033[92m' if steps >= 195 else '\033[99m'))
                 for actor in env.actor_list:
                     actor.destroy()
                 
                 break"""
-
-
-
-
